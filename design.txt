@@ -1,0 +1,252 @@
+Design Specification: Strongly-Typed Index Wrapper for Containers in C++23
+Background and Motivation
+When managing multiple indexed containers (e.g., arrays, vectors, deques) in the same context, using raw size_t indices can lead to mix-ups between index domains. For example, consider two vectors representing different data sets; an index meant for one vector could accidentally be used on the other if both use plain size_t – a logical error that the compiler cannot catch. This is a known pitfall: structs or distinct types for indices can enforce that an index intended for one array is not used on another
+stackoverflow.com
+. In practice, projects have adopted strong index types to eliminate such errors. For instance, the Horizon EDA project introduced a vector wrapper with strong index types to ensure at compile-time that an index can only be used with its intended vector
+blog.horizon-eda.org
+. The goal is to leverage C++’s type system to encode index domains, so that mismatching an index with the wrong container causes a compile-time error (rather than a runtime bug). By creating a strong typedef (i.e., a distinct type) for each index domain and a wrapper container that only accepts that type for indexing, we achieve type safety and clearer semantics. The solution should be convenient to use – avoiding the need for manual wrapping/unwrapping of indices around every access – and have zero runtime overhead (purely a compile-time enforcement).
+Design Goals
+Type Safety: Each container uses a unique index type. Using the wrong index type (or a raw index) to access a container will be a compile-time error. This prevents cross-domain index confusion by design
+stackoverflow.com
+.
+Convenience: The wrapper should be as easy to use as a normal container. Users should not have to manually convert indices (no explicit “unwrap” of the index to size_t or manual “wrap” from size_t for each access). Common operations like element access (operator[], at), iteration, and modifications should work naturally with the strong index type.
+Clarity and Maintainability: The code should clearly reflect index domains. If a compile-time error occurs due to a mix-up, the message should clearly indicate the type mismatch (e.g., “cannot convert IndexTypeB to IndexTypeA”), making it obvious which index was misused. Distinct type names (with tags) will make error messages descriptive.
+Zero Runtime Overhead: The abstraction should compile down to the same code as using raw indices. The index wrapper will just hold a numeric index and inline conversions, so there’s no performance penalty for safety.
+General Applicability: The design should wrap any container that uses a positional index of type size_t (or similar) for access. This includes std::vector, std::deque, std::array, std::span, or custom containers with operator[]/at defined. We assume the container’s indexing type is compatible with size_t (usually container::size_type is size_t for standard containers).
+Modern C++ Usage: Utilize C++23 features and best practices for clarity and safety. For example, use explicit constructors, explicit operator for conversions, and possibly concepts or requires clauses to constrain the template (if helpful for clarity).
+Strong Index Type Implementation
+At the core of this design is a strong index type – essentially a wrapper around an integer (e.g., size_t) that is treated as a distinct type by the compiler. This can be implemented in a few ways. One straightforward approach is using a class/struct with a unique tag template parameter to differentiate it from other index types. For example:
+// Generic strong index template
+template <typename Tag>
+struct StrongIndex {
+    using underlying_type = std::size_t;
+private:
+    underlying_type index_;
+public:
+    explicit StrongIndex(underlying_type i) : index_(i) {}      // explicit construction from size_t
+    explicit operator underlying_type() const { return index_; } // explicit conversion back to size_t
+
+    // Accessor for convenience (if preferred over explicit cast)
+    underlying_type value() const { return index_; }
+
+    // Optional: Default constructor and other constructors if needed
+    StrongIndex() = default;
+    // ... possibly other constructors (e.g., from an underlying type of different signedness)
+    
+    // Comparison operators (indices of same type can be compared)
+    friend bool operator==(StrongIndex a, StrongIndex b) { return a.index_ == b.index_; }
+    friend bool operator!=(StrongIndex a, StrongIndex b) { return a.index_ != b.index_; }
+    friend bool operator<(StrongIndex a, StrongIndex b)  { return a.index_ < b.index_; }
+    // (Other comparison operators can be similarly defined or defaulted in C++20+)
+
+    // Optional: Increment and decrement for convenience in loops
+    StrongIndex& operator++() { ++index_; return *this; }
+    StrongIndex operator++(int) { StrongIndex tmp(*this); ++index_; return tmp; }
+    StrongIndex& operator--() { --index_; return *this; }
+    StrongIndex operator--(int) { StrongIndex tmp(*this); --index_; return tmp; }
+
+    // Optional: Arithmetic with underlying_type (e.g., add an offset)
+    StrongIndex operator+(underlying_type n) const { return StrongIndex(index_ + n); }
+    StrongIndex operator-(underlying_type n) const { return StrongIndex(index_ - n); }
+    // Difference between two indices (returns a raw difference type, e.g., ptrdiff_t):
+    std::ptrdiff_t operator-(StrongIndex other) const { return std::ptrdiff_t(index_) - std::ptrdiff_t(other.index_); }
+};
+Using this template, we create typedefs (aliases) for each index domain by supplying a unique tag type. The tag can be a class/struct declared solely to differentiate the types (the tag itself need not have any members). For example:
+struct EmployeeIndexTag {};  
+struct DepartmentIndexTag {};
+
+using EmployeeIndex   = StrongIndex<EmployeeIndexTag>;
+using DepartmentIndex = StrongIndex<DepartmentIndexTag>;
+Now EmployeeIndex and DepartmentIndex are distinct types, even though both wrap a size_t. They are not implicitly convertible to each other or to raw integers (because the constructor and conversion operator are explicit). In other words, “those won’t mix.” If you try to use one where the other is expected, it results in a compile-time error
+reddit.com
+. This satisfies the requirement that indices from different domains cannot be confused. Why explicit? By making the constructor from size_t explicit, we prevent accidental conversion of raw integers or other index types to our strong type without an explicit cast or construction. This means you must consciously create an EmployeeIndex (e.g., EmployeeIndex{i}) from a raw size_t. Likewise, extracting the underlying index requires an explicit cast (static_cast<size_t>(empIndex)) or calling a member like value(). This explicitness ensures that operations mixing different index types are rejected by the compiler, rather than silently converting through the common underlying type. For instance, if you mistakenly attempt to assign a DepartmentIndex to an EmployeeIndex, there is no valid implicit conversion, and the compiler will emit an error such as “no match for operator= (operand types are EmployeeIndex and DepartmentIndex)”
+stackoverflow.com
+. Similarly, comparing an EmployeeIndex with a DepartmentIndex will fail to compile (no operator== exists for those mixed types). Comparison and arithmetic: In the StrongIndex definition above, we provide equality and relational operators for the same index type, so you can compare indices of the same domain (useful for looping bounds or sorting indices). We also show optional increment/decrement operators to allow using the index in loops (for(EmployeeIndex i{0}; i < empContainer.size(); ++i) { ... }) and some basic arithmetic (adding an offset, or subtracting two indices to get a distance). These are not strictly required for the minimal design, but they improve convenience. The design can include them to make the strong index behave more like an integer in safe ways. Notably, subtraction of two StrongIndex<Tag> yields a signed difference (std::ptrdiff_t), since the result could be negative if indices are subtracted in reverse order. Addition or subtraction of an index and a raw offset returns a new index of the same type. All such operations remain within the same index domain type – you cannot accidentally add an EmployeeIndex and a DepartmentIndex, as that would be a type mismatch. Alternatives: Another way to make strong index types is to use scoped enums (enum classes) with a fixed underlying type. For example, enum class EmployeeId : size_t {}; defines a distinct type that can be constructed from a size_t with EmployeeId{id} and cannot be implicitly mixed with another enum or raw index. If you try to compare different enum classes or assign between them, you get a compile error
+reddit.com
+. However, using a struct template (as above) is more flexible because you can easily add operators and methods. There are also existing libraries, such as Jonathan Boccara’s NamedType or foonathan::type_safe, which provide generic wrappers for strong types
+stackoverflow.com
+reddit.com
+. In this design, we proceed with a custom implementation for clarity, but those libraries are viable options to reduce boilerplate.
+Wrapper Container Implementation
+With strong index types defined, we create a wrapper container that enforces their use. This wrapper will hold an underlying container (like std::vector<T>, std::array<T, N>, etc.) and expose a similar interface, but any operation that takes or returns an index will use the strong type instead of a raw size_t. The wrapper should be a template that can wrap any container with size_t indexing. For example:
+template <typename Container, typename IndexType>
+class StrongIndexContainer {
+public:
+    using index_type = IndexType;
+    using value_type = typename Container::value_type;
+    using reference = typename Container::reference;
+    using const_reference = typename Container::const_reference;
+    using size_type = typename Container::size_type;  // typically size_t
+
+private:
+    Container container_;  // the underlying container
+
+public:
+    // Constructors - forward to underlying container's constructors
+    StrongIndexContainer() = default;
+    explicit StrongIndexContainer(const Container& c) : container_(c) {}
+    explicit StrongIndexContainer(Container&& c) : container_(std::move(c)) {}
+    // (Additional constructors, e.g., forwarding initializer_list, can be added as needed)
+
+    // Element access with strong index:
+    reference operator[](IndexType idx) {
+        return container_[static_cast<size_type>(idx)]; 
+    }
+    const_reference operator[](IndexType idx) const {
+        return container_[static_cast<size_type>(idx)]; 
+    }
+    reference at(IndexType idx) {
+        return container_.at(static_cast<size_type>(idx));
+    }
+    const_reference at(IndexType idx) const {
+        return container_.at(static_cast<size_type>(idx));
+    }
+
+    // Front/back (no index parameter needed, just forward):
+    reference front() { return container_.front(); }
+    const_reference front() const { return container_.front(); }
+    reference back() { return container_.back(); }
+    const_reference back() const { return container_.back(); }
+
+    // Capacity:
+    size_type size() const { return container_.size(); }
+    bool empty() const { return container_.empty(); }
+    size_type capacity() const requires requires(Container c){ c.capacity(); } { 
+        return container_.capacity(); 
+    }
+    // (and other capacity-related methods if container supports them)
+
+    // Modifiers:
+    void clear() { container_.clear(); }
+    IndexType push_back(const value_type& value) {
+        container_.push_back(value);
+        // Return the index of the new element (size()-1) as a strong IndexType
+        return IndexType(container_.size() - 1);
+    }
+    IndexType push_back(value_type&& value) {
+        container_.push_back(std::move(value));
+        return IndexType(container_.size() - 1);
+    }
+    template<typename... Args>
+    IndexType emplace_back(Args&&... args) {
+        container_.emplace_back(std::forward<Args>(args)...);
+        return IndexType(container_.size() - 1);
+    }
+    // Note: push_back returns the new element's index to avoid needing to manually wrap it.
+
+    void pop_back() { container_.pop_back(); }
+
+    // Iterators:
+    auto begin() { return container_.begin(); }
+    auto end()   { return container_.end(); }
+    auto begin() const { return container_.begin(); }
+    auto end()   const { return container_.end(); }
+
+    // Optionally, provide an iterator type that is aware of IndexType (discussed below)
+
+    // Utility: get underlying container (if needed for advanced use cases)
+    Container& underlying_container() { return container_; }
+    const Container& underlying_container() const { return container_; }
+};
+Key points of this design:
+The operator[] and at methods now only accept the IndexType. Internally, they convert the strong index to the underlying size_type (size_t) to index the actual container. This is a trivial operation (essentially getting the stored integer), and it will be optimized out – there is no additional runtime cost. If a developer tries to call operator[] with a raw size_t or the wrong index type, it simply won’t compile because no matching overload exists. For example, if EmployeeIndexContainer expects an EmployeeIndex and you mistakenly pass a DepartmentIndex or an int, the compile error will clearly indicate that the parameter types don’t match (e.g., “no matching function for call to operator[] with argument of type DepartmentIndex”). This provides immediate feedback with descriptive error messages, thanks to the strong type names
+stackoverflow.com
+.
+We forward other methods like front(), back(), and capacity queries directly to the underlying container, since they don't involve indices. These maintain the same semantics as the standard container.
+We add a convenience in modifiers: push_back (and emplace_back) not only insert an element but return its new index as an IndexType. This makes it slick to use in practice – if you add a new element to the container, you immediately get a strongly-typed index for it. For example:
+StrongIndexContainer<std::vector<Employee>, EmployeeIndex> employees;
+EmployeeIndex idx = employees.push_back(Employee("Alice")); 
+// idx is strongly typed; use it to refer to "Alice" without confusion.
+Without this, one might do size_t i = vec.size(); vec.push_back(x); EmployeeIndex idx(i);, which is more error-prone. Returning the index cuts down boilerplate and ensures you always wrap the index correctly. (If the container is std::array or fixed-size, you wouldn't have push_back, but for vector/deque this is useful.)
+Iterators: By default, this wrapper returns the underlying container’s iterators (via begin(), end(), etc.). This means you can use range-based for loops and STL algorithms on StrongIndexContainer just like on a normal container:
+for(auto& elem : employees) { /* ... */ }  // works, using underlying iterators
+std::sort(myContainer.begin(), myContainer.end());  // works if underlying supports it
+However, one caveat is that the underlying iterators are not aware of the strong index type. If you subtract two iterators, you get a ptrdiff_t (the standard difference type), not an IndexType. For example, employees.end() - employees.begin() yields a std::ptrdiff_t count. In most cases this is fine (you can compare it to employees.size() or convert to IndexType if needed), but it does reintroduce a raw index in that specific scenario. Optional iterator enhancement: If complete type safety in iterator arithmetic is desired, we could introduce a custom iterator for the wrapper that returns IndexType for differences. For instance, the wrapper’s iterator type could hold an underlying iterator and when you do iteratorA - iteratorB, it returns an IndexType (or a special strong difference type). Implementing a fully compliant random-access iterator wrapper is more complex (involving overloading all iterator operators, traits, etc.), so it can be considered an advanced extension. An simpler alternative is to provide a helper function or method to obtain an index from an iterator. For example:
+EmployeeIndex index_of(typename Container::const_iterator it) const {
+    // Calculate the zero-based index of iterator it
+    auto dist = std::distance(container_.cbegin(), it);
+    return EmployeeIndex(static_cast<size_t>(dist));
+}
+This utility can convert an iterator into a strong index relative to the beginning of the container. It spares the user from manually converting the result of std::distance into the strong type. In summary, the design prioritizes index safety for direct indexing operations (where most errors occur), while leaving iterator usage as-is for compatibility. The common use of std::distance or subtracting iterators can be handled with minor helper functions if needed, so you “don’t have to continually unwrap and wrap indices” in typical scenarios.
+Compatibility: The StrongIndexContainer does not assume a specific container type beyond having operator[], at, and common container interface (size, push_back, etc.). It can wrap std::vector, std::deque, std::array (though for std::array you’d typically use std::get<Index>() or operator[] with compile-time index — but it still has an operator[] that takes size_t), or even a C-style array via std::span. If needed, a partial specialization or an additional template parameter could handle containers with slightly different interface (for example, if a container doesn’t have push_back). For standard sequence containers, the above template works out of the box. We might add a static assertion to ensure the container’s size_type is size_t or at least that IndexType’s underlying matches it, but since we explicitly cast the IndexType to size_t when indexing, it will work as long as that’s the correct type.
+Error message clarity: By design, if an incorrect index is used, the compiler’s error will mention the type names of the index. Because we use descriptive tag names (like EmployeeIndexTag), an error might say (for example) “no viable conversion from DepartmentIndex to EmployeeIndex” or “no matching function for call to operator[] (with argument of type DepartmentIndex)”. This clearly signals that the wrong index type was passed. If a raw size_t is used by mistake (say someone writes employees[5] with an int literal), the error will be about no matching overload for operator[] with int (or it might attempt to find a conversion to EmployeeIndex but since the constructor is explicit, it won’t consider it). We could enhance this by explicitly deleting an overload for raw size_t to make the intent even clearer:
+reference operator[](size_type) = delete;
+const_reference operator[](size_type) const = delete;
+This way, any direct use of a raw index on the wrapper triggers a compile-time error that we control. The error message would then explicitly state that the operator[] taking a size_type is deleted – effectively reminding the user to use the strong index. This is optional; even without it, the absence of a matching overload will result in a compile error. The main point is that any misuse is caught early, and the compiler’s message will guide the developer to use the correct index type.
+Usage Example
+To illustrate the usage and benefits, consider a scenario with two different index domains:
+struct StudentIndexTag {};
+struct CourseIndexTag {};
+using StudentIndex = StrongIndex<StudentIndexTag>;
+using CourseIndex  = StrongIndex<CourseIndexTag>;
+
+// Wrap underlying containers (e.g., vectors)
+StrongIndexContainer<std::vector<std::string>, StudentIndex> studentNames;
+StrongIndexContainer<std::vector<double>, CourseIndex> courseGrades;
+
+// Add some data
+StudentIndex s0 = studentNames.push_back("Alice");
+StudentIndex s1 = studentNames.push_back("Bob");
+CourseIndex c0  = courseGrades.push_back(95.5);
+CourseIndex c1  = courseGrades.push_back(88.0);
+
+// Access elements using strong indices
+std::string& name = studentNames[s1];         // OK, s1 is a StudentIndex
+double& grade = courseGrades[c0];             // OK, c0 is a CourseIndex
+
+// studentNames[c0] = "Charlie";   // **Compile error:** c0 is a CourseIndex, not a StudentIndex
+// courseGrades[s1] = 91.0;       // **Compile error:** s1 is a StudentIndex, not a CourseIndex
+
+// Iteration (using underlying iterators)
+for (auto it = studentNames.begin(); it != studentNames.end(); ++it) {
+    size_t pos = std::distance(studentNames.begin(), it);
+    StudentIndex idx(pos);
+    std::cout << *it << " is at index " << static_cast<size_t>(idx) << "\n";
+    // Alternatively, if index_of() helper is provided:
+    // StudentIndex idx = studentNames.index_of(it);
+}
+In the example above, any attempt to use the wrong index (as shown in the commented lines) would result in a compile-time error. The error would resemble: “no match for operator[] (operand types are StrongIndex<CourseIndexTag> and StrongIndex<StudentIndexTag>)” – effectively saying you tried to use a CourseIndex on a student container, which is not allowed. This explicit separation of index domains makes the code self-documenting and safe. Developers can no longer accidentally use the wrong index, and if they do, the compiler points it out clearly. The convenience of the design is seen in how we access elements without any extra ceremony (just container[index] as usual, but with a strong index), and how we get strongly-typed indices from push_back. We also avoid cluttering code with manual casts: notice that we did not call .value() or cast to size_t when using the indices with the container – the wrapper took care of unwrapping the index internally. Likewise, we did not manually wrap the returned indices from push_back; the wrapper returned proper StudentIndex/CourseIndex for us. This satisfies the objective that we “don’t have to continually wrap and unwrap indices” in common operations.
+Additional Considerations
+Error messages and Debugging: The strong index types can be further enhanced with features like custom [[nodiscard]] annotations or static analysis hooks if needed. For example, one might mark the conversion operator explicit operator size_t() as [[nodiscard]] to warn if someone explicitly converts an index to a raw number and then ignores it. Generally, though, the primary misuses are prevented. The separation of types itself is usually enough to produce meaningful errors. Using clearly named tags (e.g., EmployeeIndexTag) ensures the type names in errors are understandable.
+Integrating with Standard Algorithms: The wrapper is designed to be compatible with STL algorithms. Since it exposes iterators and follows container conventions, you can sort, search, and iterate as with a normal container. Just be cautious that algorithms which produce indices (like std::distance, or using std::find and then subtracting .begin()) will yield raw integers that you should convert to IndexType explicitly. This is expected, as algorithms are unaware of our domain-specific index. One could write domain-specific algorithms or utilities if needed (for instance, a version of std::distance that returns a strong index), but that’s beyond the scope of the container design itself.
+Performance: In optimized builds, the strong index is just a thin wrapper over a size_t. The compiler will likely optimize away the abstraction. For example, container_[static_cast<size_t>(idx)] will typically compile down to the same code as a direct index operation, since static_cast<size_t>(idx) is just reading a member. There is no runtime check or penalty. Even in debug builds, the overhead is negligible (one extra function call level at most, which likely gets inlined). Thus, we maintain performance parity with raw index usage, while gaining safety.
+Memory usage: The StrongIndexContainer holds a copy of the underlying container, so its memory footprint is that of the container plus whatever minimal padding the wrapper class might have (usually none besides what the compiler might add for alignment). The IndexType instances carry just a size_t internally (and no vtable or anything, as they are simple structs), so they are as lightweight as the raw index. They can be passed around by value cheaply. In cases where the index might be stored in large numbers (e.g., a huge array of indices), it’s still just an array of size_t under the hood.
+Extensibility: The design can be adapted if you have containers that use different indexing types (for example, a container that uses int for indices). You would then parametrize StrongIndex<T> on an underlying type or ensure the cast in operator[] uses the container’s size_type. In most cases, size_type is size_t, so we used that directly. If needed, one could modify StrongIndexContainer to derive IndexType’s underlying type from Container::size_type. For instance:
+static_assert(std::is_integral_v<typename Container::size_type>);
+// possibly static_assert that IndexType::underlying_type == Container::size_type
+This ensures our assumptions align with the container’s definition.
+Example in practice: The effectiveness of this pattern has been noted in real codebases. As referenced earlier, Horizon EDA’s code introduced a similar wrapper to “ensure at compile time that an index can only be used with the intended vectors.” This was specifically to make reasoning about code correctness easier and prevent using an index for the wrong vector (which could otherwise lead to subtle bugs)
+blog.horizon-eda.org
+. By following this design spec, developers can achieve the same safety in their own projects whenever multiple indexable collections are present.
+Conclusion
+The proposed design wraps standard containers with a type-safe interface, using strongly-typed indices to enforce domain separation. Each index domain is represented by a distinct C++ type (through a template or an enum class), and the wrapper container requires that type for any indexed access. This way, the compiler becomes your ally in catching index mix-ups: if you use the wrong index, your code won’t compile. The solution maintains the ergonomics of normal container usage – you still use operator[], iterators, and other methods as usual, but with the added guarantee that you can’t accidentally use an index from a different context. By leveraging C++23 capabilities (like explicit conversions, potential use of concepts for clarity, etc.), we ensure the implementation is both modern and efficient. Importantly, there is no runtime cost for this safety; it’s achieved via compile-time type checking. The error messages produced by the compiler in case of misuse are clear and informative due to the descriptive strong type names, thereby fulfilling the goal of helping developers quickly identify and fix index mix-ups. In summary, this design provides a “convenient and slick” way to work with densely indexed containers in C++ while eliminating an entire class of bugs. It lets us encode our intent in the type system (each index knows which container it belongs to), yielding safer and more maintainable code. As a result, when you have multiple indexable containers in one scope, you can use them with confidence that indices won’t get misapplied — the code won’t compile in the wrong case, and will work correctly in the right case. This brings stronger correctness guarantees to performance-critical low-level code (like array/vector accesses) with minimal effort and no performance loss, exemplifying the ethos of Modern C++ design. Sources:
+Alex Celeste, Stack Overflow answer on using structs to prevent using an index for the wrong array (C)
+stackoverflow.com
+Lukas (Horizon EDA), Progress Report: vector wrapper with strong index types to enforce correct indexing
+blog.horizon-eda.org
+Reddit user germandiago, demonstrating a StrongTypedef pattern for distinct types (no mixing)
+reddit.com
+Stack Overflow discussion on strong-typed integers (Remy Lebeau’s answer), showing compile-time errors when mixing distinct index types
+stackoverflow.com
+Citations
+
+c - Restrict accessing arrays by wrong index - Stack Overflow
+https://stackoverflow.com/questions/25622697/restrict-accessing-arrays-by-wrong-index
+
+Progress Report January - April 2022 (What’s new in Version 2.3) | Horizon EDA Blog
+https://blog.horizon-eda.org/progress/2022/05/04/progress-2022-01-04.html
+
+How to make "stronger" types in C++ (easily) : r/cpp
+https://www.reddit.com/r/cpp/comments/rrb3lg/how_to_make_stronger_types_in_c_easily/
+
+How to strong-type an integer in C++? - Stack Overflow
+https://stackoverflow.com/questions/63821852/how-to-strong-type-an-integer-in-c
+
+How to make "stronger" types in C++ (easily) : r/cpp
+https://www.reddit.com/r/cpp/comments/rrb3lg/how_to_make_stronger_types_in_c_easily/
+
+How to strong-type an integer in C++? - Stack Overflow
+https://stackoverflow.com/questions/63821852/how-to-strong-type-an-integer-in-c
+
+How to make "stronger" types in C++ (easily) : r/cpp
+https://www.reddit.com/r/cpp/comments/rrb3lg/how_to_make_stronger_types_in_c_easily/
