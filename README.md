@@ -16,16 +16,16 @@ A modern C++23 header-only library that provides strongly-typed index wrappers f
 ```cpp
 #include "dense_index.hpp"
 
-// Define index domains
+// Define index domains using tags
 struct EmployeeTag {};
 struct DepartmentTag {};
 
 using EmployeeIndex = dense_index::StrongIndex<EmployeeTag>;
 using DepartmentIndex = dense_index::StrongIndex<DepartmentTag>;
 
-// Create strongly-typed containers
-dense_index::DenseIndexedContainer<std::vector<std::string>, EmployeeTag> employees;
-dense_index::DenseIndexedContainer<std::vector<std::string>, DepartmentTag> departments;
+// Create strongly-typed containers with explicit strong index types
+dense_index::DenseIndexedContainer<std::vector<std::string>, EmployeeIndex> employees;
+dense_index::DenseIndexedContainer<std::vector<std::string>, DepartmentIndex> departments;
 
 // Use the containers
 auto emp_idx = employees.push_back("Alice");  // Returns EmployeeIndex

@@ -13,13 +13,41 @@
 
 namespace dense_index {
 
-// Concept for any strong index type that provides get() returning size_t
+// Concept for any strong index type with various access patterns
 template<typename T>
-concept StrongIndexType = requires(T t, const T ct) {
-    { ct.get() } -> std::convertible_to<std::size_t>;
+concept StrongIndexType =
+    // Must not be a raw integral type
+    !std::is_integral_v<T> &&
     // Should be constructible from size_t (for return values)
-    { T{std::size_t{}} };
-};
+    requires(T t, const T ct, std::size_t n) {
+        { T{n} };
+    } && (
+        requires(const T ct) {
+            // Option 1: has .get() method (NamedType style)
+            { ct.get() } -> std::convertible_to<std::size_t>;
+        } ||
+        requires(const T ct) {
+            // Option 2: has .value() method (std::optional style)
+            { ct.value() } -> std::convertible_to<std::size_t>;
+        } ||
+        requires(const T ct) {
+            // Option 3: implicitly convertible (BOOST_STRONG_TYPEDEF style)
+            // But not a raw integral type (checked above)
+            { static_cast<std::size_t>(ct) } -> std::convertible_to<std::size_t>;
+        }
+    );
+
+// Helper to get the value from any strong index type
+template<typename T>
+constexpr std::size_t get_index_value(const T& idx) {
+    if constexpr (requires { idx.get(); }) {
+        return idx.get();
+    } else if constexpr (requires { idx.value(); }) {
+        return idx.value();
+    } else {
+        return static_cast<std::size_t>(idx);
+    }
+}
 
 // Concept for tag types used to differentiate index domains
 template<typename T>
@@ -228,21 +256,12 @@ concept IndexableContainer = requires(C& c, const C& cc) {
     { cc.end() } -> std::convertible_to<typename C::const_iterator>;
 } && HasIndexOperator<C> && HasSize<C>;
 
-// Primary template - works with any strong index type or tag
-template<IndexableContainer Container, typename IndexTypeOrTag>
-    requires StrongIndexType<IndexTypeOrTag> || IndexTag<IndexTypeOrTag>
+// Dense indexed container - requires a strong index type
+template<IndexableContainer Container, StrongIndexType IndexType>
 class DenseIndexedContainer {
-private:
-    // Helper to determine the actual index type
-    using ActualIndexType = std::conditional_t<
-        StrongIndexType<IndexTypeOrTag>,
-        IndexTypeOrTag,
-        StrongIndex<IndexTypeOrTag>
-    >;
-
 public:
     using container_type = Container;
-    using index_type = ActualIndexType;
+    using index_type = IndexType;
     using value_type = typename Container::value_type;
     using reference = typename Container::reference;
     using const_reference = typename Container::const_reference;
@@ -284,11 +303,11 @@ public:
 
     // Element access
     [[nodiscard]] constexpr reference operator[](index_type idx) requires HasIndexOperator<Container> {
-        return container_[idx.get()];
+        return container_[get_index_value(idx)];
     }
 
     [[nodiscard]] constexpr const_reference operator[](index_type idx) const requires HasIndexOperator<Container> {
-        return container_[idx.get()];
+        return container_[get_index_value(idx)];
     }
 
     // Delete raw index access to enforce type safety
@@ -297,11 +316,11 @@ public:
 
     // at() with bounds checking
     [[nodiscard]] constexpr reference at(index_type idx) requires HasAt<Container> {
-        return container_.at(idx.get());
+        return container_.at(get_index_value(idx));
     }
 
     [[nodiscard]] constexpr const_reference at(index_type idx) const requires HasAt<Container> {
-        return container_.at(idx.get());
+        return container_.at(get_index_value(idx));
     }
 
     // Delete raw index at() access
@@ -407,13 +426,13 @@ public:
 
     // Insert with index return
     constexpr index_type insert(index_type pos, const value_type& value) requires HasInsert<Container> {
-        auto it = container_.begin() + static_cast<difference_type>(pos.get());
+        auto it = container_.begin() + static_cast<difference_type>(get_index_value(pos));
         auto result_it = container_.insert(it, value);
         return index_type(std::distance(container_.begin(), result_it));
     }
 
     constexpr index_type insert(index_type pos, value_type&& value) requires HasInsert<Container> {
-        auto it = container_.begin() + static_cast<difference_type>(pos.get());
+        auto it = container_.begin() + static_cast<difference_type>(get_index_value(pos));
         auto result_it = container_.insert(it, std::move(value));
         return index_type(std::distance(container_.begin(), result_it));
     }
@@ -424,7 +443,7 @@ public:
             { c.insert(it, first, last) };
         }
     constexpr index_type insert(index_type pos, InputIt first, InputIt last) {
-        auto it = container_.begin() + static_cast<difference_type>(pos.get());
+        auto it = container_.begin() + static_cast<difference_type>(get_index_value(pos));
         auto result_it = container_.insert(it, first, last);
         return index_type(std::distance(container_.begin(), result_it));
     }
@@ -435,21 +454,21 @@ public:
             { c.emplace(it, std::forward<Args>(args)...) };
         }
     constexpr index_type emplace(index_type pos, Args&&... args) {
-        auto it = container_.begin() + static_cast<difference_type>(pos.get());
+        auto it = container_.begin() + static_cast<difference_type>(get_index_value(pos));
         auto result_it = container_.emplace(it, std::forward<Args>(args)...);
         return index_type(std::distance(container_.begin(), result_it));
     }
 
     // Erase operations
     constexpr index_type erase(index_type pos) requires HasErase<Container> {
-        auto it = container_.begin() + static_cast<difference_type>(pos.get());
+        auto it = container_.begin() + static_cast<difference_type>(get_index_value(pos));
         auto result_it = container_.erase(it);
         return index_type(std::distance(container_.begin(), result_it));
     }
 
     constexpr index_type erase(index_type first, index_type last) requires HasErase<Container> {
-        auto first_it = container_.begin() + static_cast<difference_type>(first.get());
-        auto last_it = container_.begin() + static_cast<difference_type>(last.get());
+        auto first_it = container_.begin() + static_cast<difference_type>(get_index_value(first));
+        auto last_it = container_.begin() + static_cast<difference_type>(get_index_value(last));
         auto result_it = container_.erase(first_it, last_it);
         return index_type(std::distance(container_.begin(), result_it));
     }
@@ -500,11 +519,11 @@ public:
     }
 
     [[nodiscard]] constexpr iterator iterator_at(index_type idx) {
-        return container_.begin() + static_cast<difference_type>(idx.get());
+        return container_.begin() + static_cast<difference_type>(get_index_value(idx));
     }
 
     [[nodiscard]] constexpr const_iterator iterator_at(index_type idx) const {
-        return container_.cbegin() + static_cast<difference_type>(idx.get());
+        return container_.cbegin() + static_cast<difference_type>(get_index_value(idx));
     }
 
     // Access to underlying container (escape hatch)
@@ -526,8 +545,8 @@ public:
 };
 
 // Swap specialization
-template<IndexableContainer Container, typename IndexTypeOrTag>
-constexpr void swap(DenseIndexedContainer<Container, IndexTypeOrTag>& lhs, DenseIndexedContainer<Container, IndexTypeOrTag>& rhs)
+template<IndexableContainer Container, StrongIndexType IndexType>
+constexpr void swap(DenseIndexedContainer<Container, IndexType>& lhs, DenseIndexedContainer<Container, IndexType>& rhs)
     noexcept(noexcept(lhs.swap(rhs)))
 {
     lhs.swap(rhs);
@@ -536,23 +555,20 @@ constexpr void swap(DenseIndexedContainer<Container, IndexTypeOrTag>& lhs, Dense
 } // namespace dense_index
 
 // Range support
-template<dense_index::IndexableContainer Container, typename IndexTypeOrTag>
-inline constexpr bool std::ranges::enable_borrowed_range<dense_index::DenseIndexedContainer<Container, IndexTypeOrTag>> =
+template<dense_index::IndexableContainer Container, dense_index::StrongIndexType IndexType>
+inline constexpr bool std::ranges::enable_borrowed_range<dense_index::DenseIndexedContainer<Container, IndexType>> =
     std::ranges::enable_borrowed_range<Container>;
 
 namespace dense_index {
 
-// Deduction guides
-template<typename Container, IndexTag Tag>
-DenseIndexedContainer(Container) -> DenseIndexedContainer<Container, StrongIndex<Tag>>;
+// Type aliases - now require explicit strong index type
+template<typename T, StrongIndexType IndexType>
+using DenseVector = DenseIndexedContainer<std::vector<T>, IndexType>;
 
-template<typename T, typename Tag = struct DefaultIndexTag>
-using DenseVector = DenseIndexedContainer<std::vector<T>, StrongIndex<Tag>>;
+template<typename T, std::size_t N, StrongIndexType IndexType>
+using DenseArray = DenseIndexedContainer<std::array<T, N>, IndexType>;
 
-template<typename T, std::size_t N, typename Tag = struct DefaultIndexTag>
-using DenseArray = DenseIndexedContainer<std::array<T, N>, StrongIndex<Tag>>;
-
-template<typename T, typename Tag = struct DefaultIndexTag>
-using DenseDeque = DenseIndexedContainer<std::deque<T>, StrongIndex<Tag>>;
+template<typename T, StrongIndexType IndexType>
+using DenseDeque = DenseIndexedContainer<std::deque<T>, IndexType>;
 
 } // namespace dense_index

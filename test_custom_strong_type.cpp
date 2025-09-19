@@ -132,32 +132,34 @@ int main() {
         std::cout << "  ✓ Third-party NamedType works" << std::endl;
     }
 
-    // Test 4: Verify backward compatibility with tags
+    // Test 4: Using built-in StrongIndex
     {
-        std::cout << "\nTest 4: Backward compatibility with tag-based interface" << std::endl;
+        std::cout << "\nTest 4: Using built-in StrongIndex type" << std::endl;
 
         struct MyTag {};
-        dense_index::DenseIndexedContainer<std::vector<int>, MyTag> numbers;
+        using MyIndex = dense_index::StrongIndex<MyTag>;
+        dense_index::DenseIndexedContainer<std::vector<int>, MyIndex> numbers;
 
         auto idx = numbers.push_back(42);
         assert(numbers[idx] == 42);
 
-        // This uses StrongIndex<MyTag> internally
+        // Verify the type is correct
         static_assert(std::is_same_v<
             decltype(idx),
-            dense_index::StrongIndex<MyTag>
+            MyIndex
         >);
 
-        std::cout << "  ✓ Tag-based interface still works" << std::endl;
+        std::cout << "  ✓ Built-in StrongIndex works" << std::endl;
     }
 
     // Test 5: Mixing both approaches in the same program
     {
         std::cout << "\nTest 5: Mixing both approaches" << std::endl;
 
-        // Using built-in StrongIndex with tag
+        // Using built-in StrongIndex
         struct BuiltinTag {};
-        dense_index::DenseIndexedContainer<std::vector<int>, BuiltinTag> container1;
+        using BuiltinIndex = dense_index::StrongIndex<BuiltinTag>;
+        dense_index::DenseIndexedContainer<std::vector<int>, BuiltinIndex> container1;
 
         // Using custom strong type
         using MyCustomIndex = CustomStrongIndex<struct CustomTag>;
@@ -185,10 +187,11 @@ int main() {
 
     std::cout << "\n✅ All custom strong type tests passed!" << std::endl;
     std::cout << "\nThe library successfully works with:" << std::endl;
-    std::cout << "  • Built-in StrongIndex<Tag>" << std::endl;
-    std::cout << "  • Custom strong types with get() method" << std::endl;
+    std::cout << "  • Built-in StrongIndex<Tag> type" << std::endl;
+    std::cout << "  • Custom strong types with .get() method" << std::endl;
+    std::cout << "  • Custom strong types with .value() method" << std::endl;
+    std::cout << "  • Custom strong types with implicit conversion" << std::endl;
     std::cout << "  • Third-party strong type libraries" << std::endl;
-    std::cout << "  • Legacy tag-based interface (backward compatible)" << std::endl;
 
     return 0;
 }

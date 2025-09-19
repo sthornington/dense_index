@@ -15,8 +15,8 @@ struct DepartmentTag {};
 using EmployeeIndex = StrongIndex<EmployeeTag>;
 using DepartmentIndex = StrongIndex<DepartmentTag>;
 
-using EmployeeVector = DenseIndexedContainer<std::vector<std::string>, EmployeeTag>;
-using DepartmentVector = DenseIndexedContainer<std::vector<int>, DepartmentTag>;
+using EmployeeVector = DenseIndexedContainer<std::vector<std::string>, EmployeeIndex>;
+using DepartmentVector = DenseIndexedContainer<std::vector<int>, DepartmentIndex>;
 
 void test_compile_time_errors() {
     EmployeeVector employees;
@@ -73,7 +73,9 @@ void test_compile_time_errors() {
     // ========================================
     // ERROR 8: Using method that doesn't exist on underlying container
     // ========================================
-    using ArrayContainer = DenseIndexedContainer<std::array<int, 10>, struct ArrayTag>;
+    struct ArrayTag {};
+    using ArrayIndex = StrongIndex<ArrayTag>;
+    using ArrayContainer = DenseIndexedContainer<std::array<int, 10>, ArrayIndex>;
     ArrayContainer arr{};
 
     // Uncomment to see error: no member named 'push_back' (requires constraint not satisfied)
@@ -89,13 +91,14 @@ void test_compile_time_errors() {
     // ERROR 9: Invalid container type (no operator[])
     // ========================================
     // Uncomment to see error: constraints not satisfied for IndexableContainer
-    // using ListContainer = DenseIndexedContainer<std::list<int>, struct ListTag>;
+    // struct ListTag {};
+    // using ListIndex = StrongIndex<ListTag>;
+    // using ListContainer = DenseIndexedContainer<std::list<int>, ListIndex>;
 
     // ========================================
-    // ERROR 10: Invalid index tag type (not a class/enum)
+    // ERROR 10: Invalid index type (not a strong type)
     // ========================================
-    // Uncomment to see error: constraints not satisfied for IndexTag
-    // using BadIndex = StrongIndex<int>;
+    // Uncomment to see error: constraints not satisfied for StrongIndexType
     // using BadContainer = DenseIndexedContainer<std::vector<int>, int>;
 }
 
@@ -104,8 +107,8 @@ void test_compile_time_errors() {
 // ========================================
 void test_positive_cases() {
     // Different containers with same index type is OK
-    DenseIndexedContainer<std::vector<int>, EmployeeTag> emp_ids;
-    DenseIndexedContainer<std::vector<std::string>, EmployeeTag> emp_names;
+    DenseIndexedContainer<std::vector<int>, EmployeeIndex> emp_ids;
+    DenseIndexedContainer<std::vector<std::string>, EmployeeIndex> emp_names;
 
     auto idx = emp_ids.push_back(1001);
     std::string name = emp_names[idx];  // OK - same index type
@@ -124,7 +127,9 @@ void test_positive_cases() {
     bool less = (idx2 < idx3);   // OK
 
     // Using conditional methods when available
-    DenseIndexedContainer<std::vector<int>, struct VecTag> vec;
+    struct VecTag {};
+    using VecIndex = StrongIndex<VecTag>;
+    DenseIndexedContainer<std::vector<int>, VecIndex> vec;
     vec.push_back(1);  // OK - vector has push_back
     vec.reserve(10);   // OK - vector has reserve
     auto cap = vec.capacity();  // OK - vector has capacity
@@ -132,7 +137,7 @@ void test_positive_cases() {
     // Using enum class as tag
     enum class TaskPriority {};
     using TaskIndex = StrongIndex<TaskPriority>;
-    DenseIndexedContainer<std::vector<int>, TaskPriority> tasks;
+    DenseIndexedContainer<std::vector<int>, TaskIndex> tasks;
 }
 
 int main() {

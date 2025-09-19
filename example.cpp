@@ -30,18 +30,23 @@ struct Department {
     EmployeeId manager;
 };
 
+// Strong type for team member position (0, 1, 2, etc in the team)
+struct TeamPositionTag {};
+using TeamPosition = StrongIndex<TeamPositionTag>;
+
 struct Project {
     std::string name;
-    std::vector<EmployeeId> team_members;
+    // Vector of employee IDs, indexed by team position (not employee ID!)
+    DenseIndexedContainer<std::vector<EmployeeId>, TeamPosition> team_members;
 };
 
 void demonstrate() {
     std::cout << "=== Employee Management System Example ===" << std::endl;
 
-    // Create strongly-typed containers
-    DenseIndexedContainer<std::vector<Employee>, EmployeeTag> employees;
-    DenseIndexedContainer<std::vector<Department>, DepartmentTag> departments;
-    DenseIndexedContainer<std::vector<Project>, ProjectTag> projects;
+    // Create strongly-typed containers using strong index types
+    DenseIndexedContainer<std::vector<Employee>, EmployeeId> employees;
+    DenseIndexedContainer<std::vector<Department>, DepartmentId> departments;
+    DenseIndexedContainer<std::vector<Project>, ProjectId> projects;
 
     // Add departments
     auto eng_dept = departments.emplace_back("Engineering", EmployeeId{});
@@ -58,10 +63,16 @@ void demonstrate() {
     departments[sales_dept].manager = diana;
 
     // Create projects with team members
-    auto project1 = projects.emplace_back("Website Redesign",
-        std::vector<EmployeeId>{alice, bob});
-    auto project2 = projects.emplace_back("Sales Campaign",
-        std::vector<EmployeeId>{charlie, diana});
+    DenseIndexedContainer<std::vector<EmployeeId>, TeamPosition> web_team;
+    web_team.push_back(alice);
+    web_team.push_back(bob);
+
+    DenseIndexedContainer<std::vector<EmployeeId>, TeamPosition> sales_team;
+    sales_team.push_back(charlie);
+    sales_team.push_back(diana);
+
+    auto project1 = projects.emplace_back("Website Redesign", std::move(web_team));
+    auto project2 = projects.emplace_back("Sales Campaign", std::move(sales_team));
 
     // Type safety in action - these would not compile:
     // employees[eng_dept];  // Error: wrong index type
@@ -80,7 +91,8 @@ void demonstrate() {
     for (ProjectId proj_id{}; proj_id.value() < projects.size(); ++proj_id) {
         const auto& project = projects[proj_id];
         std::cout << "  " << project.name << " - Team: ";
-        for (auto emp_id : project.team_members) {
+        // team_members is a DenseIndexedContainer, so we can iterate its values directly
+        for (const auto& emp_id : project.team_members) {
             std::cout << employees[emp_id].name << " ";
         }
         std::cout << std::endl;
@@ -131,9 +143,9 @@ struct Entity {
 void demonstrate() {
     std::cout << "\n=== Game Entity System Example ===" << std::endl;
 
-    DenseIndexedContainer<std::vector<Entity>, EntityTag> entities;
-    DenseIndexedContainer<std::vector<Transform>, ComponentTag> transforms;
-    DenseIndexedContainer<std::vector<Health>, ComponentTag> healths;
+    DenseIndexedContainer<std::vector<Entity>, EntityId> entities;
+    DenseIndexedContainer<std::vector<Transform>, ComponentId> transforms;
+    DenseIndexedContainer<std::vector<Health>, ComponentId> healths;
 
     // Create game entities with components
     auto player_transform = transforms.emplace_back(0.0f, 0.0f, 0.0f, 0.0f);
@@ -199,8 +211,8 @@ struct Edge {
 void demonstrate() {
     std::cout << "\n=== Graph Data Structure Example ===" << std::endl;
 
-    DenseIndexedContainer<std::vector<Node>, NodeTag> nodes;
-    DenseIndexedContainer<std::vector<Edge>, EdgeTag> edges;
+    DenseIndexedContainer<std::vector<Node>, NodeId> nodes;
+    DenseIndexedContainer<std::vector<Edge>, EdgeId> edges;
 
     // Build a graph
     auto node_a = nodes.emplace_back("A", 10);

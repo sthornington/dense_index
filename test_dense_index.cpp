@@ -105,7 +105,7 @@ void test_type_safety() {
 void test_dense_vector() {
     std::cout << "Testing DenseIndexedContainer with vector..." << std::endl;
 
-    using EmployeeVector = dense_index::DenseIndexedContainer<std::vector<std::string>, EmployeeTag>;
+    using EmployeeVector = dense_index::DenseIndexedContainer<std::vector<std::string>, EmployeeIndex>;
     EmployeeVector employees;
 
     // Test push_back returns index
@@ -162,7 +162,7 @@ void test_dense_vector() {
 void test_dense_array() {
     std::cout << "Testing DenseIndexedContainer with array..." << std::endl;
 
-    using ProductArray = dense_index::DenseIndexedContainer<std::array<double, 5>, ProductTag>;
+    using ProductArray = dense_index::DenseIndexedContainer<std::array<double, 5>, ProductIndex>;
     ProductArray prices{};
 
     // Test element access
@@ -199,7 +199,9 @@ void test_dense_array() {
 void test_dense_deque() {
     std::cout << "Testing DenseIndexedContainer with deque..." << std::endl;
 
-    using TaskDeque = dense_index::DenseIndexedContainer<std::deque<int>, struct TaskTag>;
+    struct TaskTag {};
+    using TaskIndex = dense_index::StrongIndex<TaskTag>;
+    using TaskDeque = dense_index::DenseIndexedContainer<std::deque<int>, TaskIndex>;
     TaskDeque tasks;
 
     // Test push operations
@@ -230,7 +232,9 @@ void test_dense_deque() {
 void test_iterator_utilities() {
     std::cout << "Testing iterator utilities..." << std::endl;
 
-    using NumberVector = dense_index::DenseIndexedContainer<std::vector<int>, struct NumberTag>;
+    struct NumberTag {};
+    using NumberIndex = dense_index::StrongIndex<NumberTag>;
+    using NumberVector = dense_index::DenseIndexedContainer<std::vector<int>, NumberIndex>;
     NumberVector numbers;
 
     for (int i = 0; i < 10; ++i) {
@@ -244,7 +248,7 @@ void test_iterator_utilities() {
     assert(numbers[idx] == 5);
 
     // Test iterator_at
-    auto idx2 = dense_index::StrongIndex<struct NumberTag>(7);
+    auto idx2 = NumberIndex(7);
     auto it2 = numbers.iterator_at(idx2);
     assert(*it2 == 7);
 
@@ -255,7 +259,9 @@ void test_iterator_utilities() {
 void test_stl_algorithms() {
     std::cout << "Testing STL algorithm compatibility..." << std::endl;
 
-    using ScoreVector = dense_index::DenseIndexedContainer<std::vector<int>, struct ScoreTag>;
+    struct ScoreTag {};
+    using ScoreIndex = dense_index::StrongIndex<ScoreTag>;
+    using ScoreVector = dense_index::DenseIndexedContainer<std::vector<int>, ScoreIndex>;
     ScoreVector scores;
 
     for (int i = 10; i > 0; --i) {
@@ -264,8 +270,8 @@ void test_stl_algorithms() {
 
     // Test std::sort
     std::sort(scores.begin(), scores.end());
-    assert(scores[dense_index::StrongIndex<struct ScoreTag>(0)] == 10);
-    assert(scores[dense_index::StrongIndex<struct ScoreTag>(9)] == 100);
+    assert(scores[ScoreIndex(0)] == 10);
+    assert(scores[ScoreIndex(9)] == 100);
 
     // Test std::find
     auto it = std::find(scores.begin(), scores.end(), 50);
@@ -285,7 +291,9 @@ void test_conditional_methods() {
     std::cout << "Testing conditional method availability..." << std::endl;
 
     // Vector has capacity, reserve, etc.
-    using Vec = dense_index::DenseIndexedContainer<std::vector<int>, struct VecTag>;
+    struct VecTag {};
+    using VecIndex = dense_index::StrongIndex<VecTag>;
+    using Vec = dense_index::DenseIndexedContainer<std::vector<int>, VecIndex>;
     Vec vec;
     vec.reserve(100);
     assert(vec.capacity() >= 100);
@@ -300,7 +308,9 @@ void test_conditional_methods() {
     assert(vec.size() == 5);
 
     // Array doesn't have push_back, capacity, etc.
-    using Arr = dense_index::DenseIndexedContainer<std::array<int, 10>, struct ArrTag>;
+    struct ArrTag {};
+    using ArrIndex = dense_index::StrongIndex<ArrTag>;
+    using Arr = dense_index::DenseIndexedContainer<std::array<int, 10>, ArrIndex>;
     Arr arr{};
 
     // These should not compile:
@@ -320,10 +330,12 @@ void test_construction() {
     std::cout << "Testing various construction methods..." << std::endl;
 
     // From initializer list
-    using IntVec = dense_index::DenseIndexedContainer<std::vector<int>, struct IntTag>;
+    struct IntTag {};
+    using IntIndex = dense_index::StrongIndex<IntTag>;
+    using IntVec = dense_index::DenseIndexedContainer<std::vector<int>, IntIndex>;
     IntVec vec1{1, 2, 3, 4, 5};
     assert(vec1.size() == 5);
-    assert(vec1[dense_index::StrongIndex<struct IntTag>(2)] == 3);
+    assert(vec1[IntIndex(2)] == 3);
 
     // From size
     IntVec vec2(10);
@@ -332,13 +344,13 @@ void test_construction() {
     // From size and value
     IntVec vec3(5, 42);
     assert(vec3.size() == 5);
-    assert(vec3[dense_index::StrongIndex<struct IntTag>(0)] == 42);
+    assert(vec3[IntIndex(0)] == 42);
 
     // From iterators
     std::vector<int> source = {10, 20, 30};
     IntVec vec4(source.begin(), source.end());
     assert(vec4.size() == 3);
-    assert(vec4[dense_index::StrongIndex<struct IntTag>(1)] == 20);
+    assert(vec4[IntIndex(1)] == 20);
 
     std::cout << "  ✓ Construction variants" << std::endl;
 }
@@ -347,7 +359,9 @@ void test_construction() {
 void test_swap() {
     std::cout << "Testing swap..." << std::endl;
 
-    using StrVec = dense_index::DenseIndexedContainer<std::vector<std::string>, struct StrTag>;
+    struct StrTag {};
+    using StrIndex = dense_index::StrongIndex<StrTag>;
+    using StrVec = dense_index::DenseIndexedContainer<std::vector<std::string>, StrIndex>;
     StrVec vec1;
     [[maybe_unused]] auto _1 = vec1.push_back("A");
     [[maybe_unused]] auto _2 = vec1.push_back("B");
@@ -360,8 +374,8 @@ void test_swap() {
     vec1.swap(vec2);
     assert(vec1.size() == 3);
     assert(vec2.size() == 2);
-    assert(vec1[dense_index::StrongIndex<struct StrTag>(0)] == "X");
-    assert(vec2[dense_index::StrongIndex<struct StrTag>(0)] == "A");
+    assert(vec1[StrIndex(0)] == "X");
+    assert(vec2[StrIndex(0)] == "A");
 
     // Test ADL swap
     using std::swap;
@@ -376,7 +390,9 @@ void test_swap() {
 void test_comparisons() {
     std::cout << "Testing comparison operators..." << std::endl;
 
-    using IntVec = dense_index::DenseIndexedContainer<std::vector<int>, struct CmpTag>;
+    struct CmpTag {};
+    using CmpIndex = dense_index::StrongIndex<CmpTag>;
+    using IntVec = dense_index::DenseIndexedContainer<std::vector<int>, CmpIndex>;
     IntVec vec1{1, 2, 3};
     IntVec vec2{1, 2, 3};
     IntVec vec3{1, 2, 4};
@@ -436,7 +452,9 @@ void test_concepts() {
 void test_underlying_access() {
     std::cout << "Testing underlying container access..." << std::endl;
 
-    using IntVec = dense_index::DenseIndexedContainer<std::vector<int>, struct UnderlyingTag>;
+    struct UnderlyingTag {};
+    using UnderlyingIndex = dense_index::StrongIndex<UnderlyingTag>;
+    using IntVec = dense_index::DenseIndexedContainer<std::vector<int>, UnderlyingIndex>;
     IntVec vec{1, 2, 3, 4, 5};
 
     // Get underlying container
@@ -459,13 +477,19 @@ void test_underlying_access() {
 void test_type_aliases() {
     std::cout << "Testing type aliases..." << std::endl;
 
-    dense_index::DenseVector<int, struct VectorTag> dense_vec{1, 2, 3};
+    struct VectorTag {};
+    using VectorIndex = dense_index::StrongIndex<VectorTag>;
+    dense_index::DenseVector<int, VectorIndex> dense_vec{1, 2, 3};
     assert(dense_vec.size() == 3);
 
-    dense_index::DenseArray<double, 5, struct ArrayTag> dense_arr{};
+    struct ArrayTag {};
+    using ArrayIndex = dense_index::StrongIndex<ArrayTag>;
+    dense_index::DenseArray<double, 5, ArrayIndex> dense_arr{};
     assert(dense_arr.size() == 5);
 
-    dense_index::DenseDeque<std::string, struct DequeTag> dense_deq;
+    struct DequeTag {};
+    using DequeIndex = dense_index::StrongIndex<DequeTag>;
+    dense_index::DenseDeque<std::string, DequeIndex> dense_deq;
     [[maybe_unused]] auto _ = dense_deq.push_back("test");
     assert(dense_deq.size() == 1);
 
@@ -475,8 +499,8 @@ void test_type_aliases() {
 // Compile-time error tests (these should NOT compile)
 template<typename = void>
 void compile_time_error_tests() {
-    using EmpVec = dense_index::DenseIndexedContainer<std::vector<int>, EmployeeTag>;
-    using DeptVec = dense_index::DenseIndexedContainer<std::vector<int>, DepartmentTag>;
+    using EmpVec = dense_index::DenseIndexedContainer<std::vector<int>, EmployeeIndex>;
+    using DeptVec = dense_index::DenseIndexedContainer<std::vector<int>, DepartmentIndex>;
 
     EmpVec emp_vec;
     DeptVec dept_vec;
@@ -522,10 +546,11 @@ void test_performance() {
 
     // Dense indexed vector
     struct PerfTag {};
-    using PerfVec = dense_index::DenseIndexedContainer<std::vector<int>, PerfTag>;
+    using PerfIndex = dense_index::StrongIndex<PerfTag>;
+    using PerfVec = dense_index::DenseIndexedContainer<std::vector<int>, PerfIndex>;
     PerfVec dense_vec(N);
     for (size_t i = 0; i < N; ++i) {
-        dense_vec[dense_index::StrongIndex<PerfTag>(i)] = static_cast<int>(i);
+        dense_vec[PerfIndex(i)] = static_cast<int>(i);
     }
 
     // Both should have identical memory layout
