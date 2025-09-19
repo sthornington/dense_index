@@ -7,7 +7,7 @@ TEST_FLAGS = -std=c++23 -Wall -Wextra -Wpedantic
 BUILD_DIR = build
 
 # Targets
-TARGETS = $(BUILD_DIR)/test_dense_index $(BUILD_DIR)/example
+TARGETS = $(BUILD_DIR)/test_dense_index $(BUILD_DIR)/example $(BUILD_DIR)/test_custom_strong_type
 
 .PHONY: all clean test debug run_example check_errors
 
@@ -22,11 +22,17 @@ $(BUILD_DIR)/test_dense_index: test_dense_index.cpp dense_index.hpp | $(BUILD_DI
 $(BUILD_DIR)/example: example.cpp dense_index.hpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $<
 
+$(BUILD_DIR)/test_custom_strong_type: test_custom_strong_type.cpp dense_index.hpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $<
+
 debug: test_dense_index.cpp dense_index.hpp | $(BUILD_DIR)
 	$(CXX) $(TEST_FLAGS) $(DEBUG_FLAGS) -o $(BUILD_DIR)/test_dense_index_debug test_dense_index.cpp
 
 test: $(BUILD_DIR)/test_dense_index
 	$(BUILD_DIR)/test_dense_index
+
+test_custom: $(BUILD_DIR)/test_custom_strong_type
+	$(BUILD_DIR)/test_custom_strong_type
 
 run_example: $(BUILD_DIR)/example
 	$(BUILD_DIR)/example

@@ -13,6 +13,14 @@
 
 namespace dense_index {
 
+// Concept for any strong index type that provides get() returning size_t
+template<typename T>
+concept StrongIndexType = requires(T t, const T ct) {
+    { ct.get() } -> std::convertible_to<std::size_t>;
+    // Should be constructible from size_t (for return values)
+    { T{std::size_t{}} };
+};
+
 // Concept for tag types used to differentiate index domains
 template<typename T>
 concept IndexTag = std::is_class_v<T> || std::is_enum_v<T>;
@@ -38,6 +46,11 @@ public:
     }
 
     [[nodiscard]] constexpr underlying_type value() const noexcept {
+        return value_;
+    }
+
+    // Provide get() method for compatibility with generic strong type concept
+    [[nodiscard]] constexpr underlying_type get() const noexcept {
         return value_;
     }
 
@@ -215,12 +228,21 @@ concept IndexableContainer = requires(C& c, const C& cc) {
     { cc.end() } -> std::convertible_to<typename C::const_iterator>;
 } && HasIndexOperator<C> && HasSize<C>;
 
-// Dense indexed container wrapper
-template<IndexableContainer Container, IndexTag Tag>
+// Primary template - works with any strong index type or tag
+template<IndexableContainer Container, typename IndexTypeOrTag>
+    requires StrongIndexType<IndexTypeOrTag> || IndexTag<IndexTypeOrTag>
 class DenseIndexedContainer {
+private:
+    // Helper to determine the actual index type
+    using ActualIndexType = std::conditional_t<
+        StrongIndexType<IndexTypeOrTag>,
+        IndexTypeOrTag,
+        StrongIndex<IndexTypeOrTag>
+    >;
+
 public:
     using container_type = Container;
-    using index_type = StrongIndex<Tag>;
+    using index_type = ActualIndexType;
     using value_type = typename Container::value_type;
     using reference = typename Container::reference;
     using const_reference = typename Container::const_reference;
@@ -261,12 +283,12 @@ public:
         : container_(init) {}
 
     // Element access
-    [[nodiscard]] constexpr reference operator[](index_type idx) {
-        return container_[static_cast<size_type>(idx)];
+    [[nodiscard]] constexpr reference operator[](index_type idx) requires HasIndexOperator<Container> {
+        return container_[idx.get()];
     }
 
-    [[nodiscard]] constexpr const_reference operator[](index_type idx) const {
-        return container_[static_cast<size_type>(idx)];
+    [[nodiscard]] constexpr const_reference operator[](index_type idx) const requires HasIndexOperator<Container> {
+        return container_[idx.get()];
     }
 
     // Delete raw index access to enforce type safety
@@ -275,11 +297,11 @@ public:
 
     // at() with bounds checking
     [[nodiscard]] constexpr reference at(index_type idx) requires HasAt<Container> {
-        return container_.at(static_cast<size_type>(idx));
+        return container_.at(idx.get());
     }
 
     [[nodiscard]] constexpr const_reference at(index_type idx) const requires HasAt<Container> {
-        return container_.at(static_cast<size_type>(idx));
+        return container_.at(idx.get());
     }
 
     // Delete raw index at() access
@@ -385,13 +407,13 @@ public:
 
     // Insert with index return
     constexpr index_type insert(index_type pos, const value_type& value) requires HasInsert<Container> {
-        auto it = container_.begin() + static_cast<difference_type>(pos.value());
+        auto it = container_.begin() + static_cast<difference_type>(pos.get());
         auto result_it = container_.insert(it, value);
         return index_type(std::distance(container_.begin(), result_it));
     }
 
     constexpr index_type insert(index_type pos, value_type&& value) requires HasInsert<Container> {
-        auto it = container_.begin() + static_cast<difference_type>(pos.value());
+        auto it = container_.begin() + static_cast<difference_type>(pos.get());
         auto result_it = container_.insert(it, std::move(value));
         return index_type(std::distance(container_.begin(), result_it));
     }
@@ -402,7 +424,7 @@ public:
             { c.insert(it, first, last) };
         }
     constexpr index_type insert(index_type pos, InputIt first, InputIt last) {
-        auto it = container_.begin() + static_cast<difference_type>(pos.value());
+        auto it = container_.begin() + static_cast<difference_type>(pos.get());
         auto result_it = container_.insert(it, first, last);
         return index_type(std::distance(container_.begin(), result_it));
     }
@@ -413,21 +435,21 @@ public:
             { c.emplace(it, std::forward<Args>(args)...) };
         }
     constexpr index_type emplace(index_type pos, Args&&... args) {
-        auto it = container_.begin() + static_cast<difference_type>(pos.value());
+        auto it = container_.begin() + static_cast<difference_type>(pos.get());
         auto result_it = container_.emplace(it, std::forward<Args>(args)...);
         return index_type(std::distance(container_.begin(), result_it));
     }
 
     // Erase operations
     constexpr index_type erase(index_type pos) requires HasErase<Container> {
-        auto it = container_.begin() + static_cast<difference_type>(pos.value());
+        auto it = container_.begin() + static_cast<difference_type>(pos.get());
         auto result_it = container_.erase(it);
         return index_type(std::distance(container_.begin(), result_it));
     }
 
     constexpr index_type erase(index_type first, index_type last) requires HasErase<Container> {
-        auto first_it = container_.begin() + static_cast<difference_type>(first.value());
-        auto last_it = container_.begin() + static_cast<difference_type>(last.value());
+        auto first_it = container_.begin() + static_cast<difference_type>(first.get());
+        auto last_it = container_.begin() + static_cast<difference_type>(last.get());
         auto result_it = container_.erase(first_it, last_it);
         return index_type(std::distance(container_.begin(), result_it));
     }
@@ -478,11 +500,11 @@ public:
     }
 
     [[nodiscard]] constexpr iterator iterator_at(index_type idx) {
-        return container_.begin() + static_cast<difference_type>(idx.value());
+        return container_.begin() + static_cast<difference_type>(idx.get());
     }
 
     [[nodiscard]] constexpr const_iterator iterator_at(index_type idx) const {
-        return container_.cbegin() + static_cast<difference_type>(idx.value());
+        return container_.cbegin() + static_cast<difference_type>(idx.get());
     }
 
     // Access to underlying container (escape hatch)
@@ -504,8 +526,8 @@ public:
 };
 
 // Swap specialization
-template<IndexableContainer Container, IndexTag Tag>
-constexpr void swap(DenseIndexedContainer<Container, Tag>& lhs, DenseIndexedContainer<Container, Tag>& rhs)
+template<IndexableContainer Container, typename IndexTypeOrTag>
+constexpr void swap(DenseIndexedContainer<Container, IndexTypeOrTag>& lhs, DenseIndexedContainer<Container, IndexTypeOrTag>& rhs)
     noexcept(noexcept(lhs.swap(rhs)))
 {
     lhs.swap(rhs);
@@ -514,23 +536,23 @@ constexpr void swap(DenseIndexedContainer<Container, Tag>& lhs, DenseIndexedCont
 } // namespace dense_index
 
 // Range support
-template<dense_index::IndexableContainer Container, dense_index::IndexTag Tag>
-inline constexpr bool std::ranges::enable_borrowed_range<dense_index::DenseIndexedContainer<Container, Tag>> =
+template<dense_index::IndexableContainer Container, typename IndexTypeOrTag>
+inline constexpr bool std::ranges::enable_borrowed_range<dense_index::DenseIndexedContainer<Container, IndexTypeOrTag>> =
     std::ranges::enable_borrowed_range<Container>;
 
 namespace dense_index {
 
 // Deduction guides
-template<typename Container>
-DenseIndexedContainer(Container) -> DenseIndexedContainer<Container, struct DefaultIndexTag>;
+template<typename Container, IndexTag Tag>
+DenseIndexedContainer(Container) -> DenseIndexedContainer<Container, StrongIndex<Tag>>;
 
 template<typename T, typename Tag = struct DefaultIndexTag>
-using DenseVector = DenseIndexedContainer<std::vector<T>, Tag>;
+using DenseVector = DenseIndexedContainer<std::vector<T>, StrongIndex<Tag>>;
 
 template<typename T, std::size_t N, typename Tag = struct DefaultIndexTag>
-using DenseArray = DenseIndexedContainer<std::array<T, N>, Tag>;
+using DenseArray = DenseIndexedContainer<std::array<T, N>, StrongIndex<Tag>>;
 
 template<typename T, typename Tag = struct DefaultIndexTag>
-using DenseDeque = DenseIndexedContainer<std::deque<T>, Tag>;
+using DenseDeque = DenseIndexedContainer<std::deque<T>, StrongIndex<Tag>>;
 
 } // namespace dense_index
