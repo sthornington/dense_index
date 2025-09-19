@@ -3,27 +3,33 @@ CXXFLAGS = -std=c++23 -Wall -Wextra -Wpedantic -O2 -march=native
 DEBUG_FLAGS = -g -O0 -fsanitize=address -fsanitize=undefined
 TEST_FLAGS = -std=c++23 -Wall -Wextra -Wpedantic
 
+# Output directory
+BUILD_DIR = build
+
 # Targets
-TARGETS = test_dense_index example
+TARGETS = $(BUILD_DIR)/test_dense_index $(BUILD_DIR)/example
 
 .PHONY: all clean test debug run_example check_errors
 
 all: $(TARGETS)
 
-test_dense_index: test_dense_index.cpp dense_index.hpp
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+$(BUILD_DIR)/test_dense_index: test_dense_index.cpp dense_index.hpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $<
 
-example: example.cpp dense_index.hpp
+$(BUILD_DIR)/example: example.cpp dense_index.hpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $<
 
-debug: test_dense_index.cpp dense_index.hpp
-	$(CXX) $(TEST_FLAGS) $(DEBUG_FLAGS) -o test_dense_index_debug test_dense_index.cpp
+debug: test_dense_index.cpp dense_index.hpp | $(BUILD_DIR)
+	$(CXX) $(TEST_FLAGS) $(DEBUG_FLAGS) -o $(BUILD_DIR)/test_dense_index_debug test_dense_index.cpp
 
-test: test_dense_index
-	./test_dense_index
+test: $(BUILD_DIR)/test_dense_index
+	$(BUILD_DIR)/test_dense_index
 
-run_example: example
-	./example
+run_example: $(BUILD_DIR)/example
+	$(BUILD_DIR)/example
 
 # Check that compile-time errors work as expected (should fail to compile)
 check_errors: compile_time_errors.cpp dense_index.hpp
@@ -38,7 +44,7 @@ check_errors: compile_time_errors.cpp dense_index.hpp
 	@echo "✓ Compile-time error test file is valid"
 
 clean:
-	rm -f $(TARGETS) test_dense_index_debug *.o
+	rm -rf $(BUILD_DIR)
 
 help:
 	@echo "Available targets:"
